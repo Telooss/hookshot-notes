@@ -76,6 +76,30 @@ def build_byml(root, big_endian=False) -> bytes:
     return bytes(out)
 
 
+def build_msbt(messages: dict[str, bytes]) -> bytes:
+    """UTF-8 MSBT with LBL1 (one label per bucket) and TXT2; message values are raw UTF-8 bytes (tags allowed)."""
+    labels = list(messages)
+    lbl = bytearray(struct.pack("<I", len(labels)))
+    table_end = 4 + 8 * len(labels)
+    entries = bytearray()
+    for i, name in enumerate(labels):
+        lbl += struct.pack("<II", 1, table_end + len(entries))
+        entries += bytes([len(name)]) + name.encode() + struct.pack("<I", i)
+    lbl += entries
+    txt = bytearray(struct.pack("<I", len(labels)))
+    body = bytearray(); offs = []
+    for name in labels:
+        offs.append(4 + 4 * len(labels) + len(body)); body += messages[name] + b"\0"
+    txt += struct.pack(f"<{len(offs)}I", *offs) + body
+
+    def block(tag, data):
+        b = tag + struct.pack("<I", len(data)) + bytes(8) + bytes(data)
+        return b + b"\xab" * (-len(b) % 16)
+    blocks = block(b"LBL1", lbl) + block(b"TXT2", txt)
+    head = b"MsgStdBn" + b"\xff\xfe" + bytes(2) + bytes([0, 3]) + struct.pack("<H", 2) + bytes(2) + struct.pack("<I", 0x20 + len(blocks)) + bytes(10)
+    return head + blocks
+
+
 def build_sarc(files: dict[str, bytes]) -> bytes:
     names = sorted(files)
     sfnt = bytearray()
