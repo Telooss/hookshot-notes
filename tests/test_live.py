@@ -44,6 +44,7 @@ def test_tracker_follows_zone_change():
     mem = FakeMemory()
     mem.put(HEAP + 0x800, record(HEAP + 0x800, "KokiriForest_Child", (1.0, 2.0, 3.0)))
     tracker = Tracker(lambda: mem, BANCS)
+    tracker.poll()
     assert tracker.poll().banc == "KokiriForest_Child"
     mem.put(HEAP + 0x800, record(HEAP + 0x800, "HyruleField_Child", (5.0, 6.0, 7.0)))
     mem.regions = lambda lo, hi: iter(())  # a new search would find nothing
@@ -58,7 +59,40 @@ def test_tracker_survives_process_exit():
     mem = FakeMemory()
     mem.put(HEAP + 0x1200, record(HEAP + 0x1200, "KokiriForest_Child", (9.0, 8.0, 7.0)))
     mems[0] = mem
+    assert tracker.poll() is None and tracker.status == "searching"  # announced before the scan
     state = tracker.poll()
     assert tracker.status == "live" and (state.x, state.y, state.z) == (9.0, 8.0, 7.0)
     mem.read = lambda guest, n: None  # the process went away
     assert tracker.poll() is None and tracker.status == "no_game"
+
+
+def test_zero_only_record_is_ignored():
+    mem = FakeMemory()
+    mem.put(HEAP + 0x100, record(HEAP + 0x100, "KokiriForest_Child", (0.0, 0.0, 0.0)))
+    assert find_record(mem, BANCS) is None
+
+
+def test_tracker_announces_search_before_scanning():
+    mem = FakeMemory()
+    mem.put(HEAP + 0x800, record(HEAP + 0x800, "KokiriForest_Child", (1.0, 2.0, 3.0)))
+    scans = []
+    regions = mem.regions
+    mem.regions = lambda lo, hi: (scans.append(1), regions(lo, hi))[1]
+    tracker = Tracker(lambda: mem, BANCS)
+    assert tracker.poll() is None and tracker.status == "searching" and not scans
+    assert tracker.poll().x == 1.0 and scans
+
+
+def test_tracker_backs_off_between_failed_searches(monkeypatch):
+    from hookshot_notes.game import live as live_mod
+    clock = [1000.0]
+    monkeypatch.setattr(live_mod.time, "monotonic", lambda: clock[0])
+    mem = FakeMemory()  # nothing to find
+    tracker = Tracker(lambda: mem, BANCS)
+    delays = []
+    for _ in range(7):
+        tracker.poll()          # announce or scan
+        tracker.poll()
+        delays.append(tracker.search_delay)
+        clock[0] += 1000
+    assert delays[0] == 5 and delays[-1] == 60 and delays == sorted(delays)

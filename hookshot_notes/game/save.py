@@ -22,7 +22,13 @@ class SaveState:
 
 def find_latest_save(saves: Path) -> Path | None:
     found = list(Path(saves).glob("*/slot_*/progress.sav")) if Path(saves).is_dir() else []
-    return max(found, key=lambda p: p.stat().st_mtime, default=None)
+
+    def mtime(p: Path) -> float:
+        try:
+            return p.stat().st_mtime
+        except OSError:  # renamed or deleted since the glob
+            return -1.0
+    return max(found, key=mtime, default=None)
 
 
 def parse_save(buf: bytes, mtime: float = 0.0) -> SaveState:
@@ -55,11 +61,14 @@ class SaveReader:
 
     def __init__(self):
         self.last: SaveState | None = None
+        self.ok = False  # whether the last read() succeeded
 
     def read(self, path: Path | None) -> SaveState | None:
+        self.ok = False
         try:
             p = Path(path)
             self.last = parse_save(p.read_bytes(), p.stat().st_mtime)
+            self.ok = True
         except (OSError, ValueError, struct.error, TypeError):
             pass
         return self.last

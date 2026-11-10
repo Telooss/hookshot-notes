@@ -112,6 +112,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 class _Server(ThreadingHTTPServer):
     daemon_threads = True
+    allow_reuse_address = False  # on Windows it would let a second instance bind the same port silently
     hub: StateHub
     data_dir: Path
     web_dir: Path

@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import threading
+import urllib.request
 import webbrowser
 from pathlib import Path
 
@@ -40,6 +41,30 @@ def _progress(step: str, frac: float) -> None:
     print(f"\r  {step:<10} {int(frac * 100):3d} %", end="", flush=True)
 
 
+def prepare_cache(game: GameDir, data: Path, bid: str) -> str | None:
+    """Builds the local cache if needed; returns a message for the player when it cannot."""
+    if cache_is_valid(data, bid):
+        return None
+    print("Préparation des cartes depuis ta copie du jeu (une seule fois)…")
+    try:
+        extract(game, data, _progress)
+    except Exception as e:
+        return (f"\nImpossible de préparer les cartes ({type(e).__name__}: {e}).\n"
+                "Vérifie que le dossier choisi est bien ton dossier Hookshot complet (romfs, .hookshot_exefs, hookshot.exe) "
+                "et que le jeu est en mise à jour 2.0.0.")
+    print()
+    return None
+
+
+def _already_running(port: int) -> bool:
+    """True when another Hookshot Notes already answers on this port."""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/state", timeout=1) as r:
+            return "percent" in json.loads(r.read())
+    except Exception:
+        return False
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="hookshot-notes")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
@@ -64,16 +89,24 @@ def main(argv: list[str] | None = None) -> int:
     if problem:
         print(problem)
 
+    if _already_running(args.port):
+        print("Hookshot Notes tourne déjà : j'ouvre la carte.")
+        webbrowser.open(f"http://localhost:{args.port}/")
+        if not (args.no_game or args.demo):
+            launcher.ensure_running(game)
+        return 0
+
     data = game.root / "hookshot-notes-data"
     first_run = not data.exists()
     try:
         bid = build_id(game.exefs_main)
     except (OSError, ValueError):
         bid = ""
-    if not cache_is_valid(data, bid):
-        print("Préparation des cartes depuis ta copie du jeu (une seule fois)…")
-        extract(game, data, _progress)
-        print()
+    failure = prepare_cache(game, data, bid)
+    if failure:
+        print(failure)
+        input("Entrée pour fermer…")
+        return 1
     if first_run and getattr(sys, "frozen", False):
         try:
             print("Raccourci créé :", create_desktop_shortcut(Path(sys.executable)))

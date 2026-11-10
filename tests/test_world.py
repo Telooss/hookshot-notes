@@ -56,3 +56,26 @@ def test_world_contents(game_dir, extracted):
     assert (extracted / "fonts" / "cetra.otf").read_bytes()[:4] == b"OTTO"
     assert run.cache_is_valid(extracted, build_id(game_dir.exefs_main))
     assert not run.cache_is_valid(extracted, "0" * 40)
+
+
+def test_swap_in_keeps_player_files(tmp_path):
+    out, tmp = tmp_path / "hookshot-notes-data", tmp_path / "hookshot-notes-data.tmp"
+    out.mkdir(); tmp.mkdir()
+    (out / "visited.json").write_text('["KokiriForest"]', "utf-8")
+    (out / "state.json").write_text('{"zone": "KokiriForest"}', "utf-8")
+    (out / "world.json").write_text("old", "utf-8")
+    (tmp / "world.json").write_text("new", "utf-8")
+    run.swap_in(tmp, out)
+    assert (out / "world.json").read_text("utf-8") == "new"
+    assert (out / "visited.json").read_text("utf-8") == '["KokiriForest"]'
+    assert (out / "state.json").exists() and not tmp.exists()
+    assert not out.with_name(out.name + ".old").exists()
+
+
+@pytest.mark.game
+def test_adult_castle_uses_its_own_camera(extracted):
+    world = json.loads((extracted / "world.json").read_text("utf-8"))
+    castle = next(z for z in world["zones"] if z["id"] == "HyruleCastle")
+    ganon = castle["maps"]["GanonCastle"]
+    assert ganon["camera"] != castle["maps"]["HyruleCastle"]["camera"]
+    assert len([o for o in castle["objects"] if o["map"] == "GanonCastle"]) >= 4

@@ -29,3 +29,11 @@ def test_shortcut_command_quotes_paths():
 def test_qr_svg():
     out = qr.svg("http://192.168.1.5:8737/")
     assert out.lstrip().startswith(("<svg", "<?xml"))
+
+
+def test_prepare_cache_explains_a_failed_extraction(tmp_path):
+    from hookshot_notes.__main__ import prepare_cache
+    (tmp_path / "romfs").mkdir()
+    (tmp_path / ".hookshot_exefs").mkdir()
+    msg = prepare_cache(GameDir(tmp_path), tmp_path / "hookshot-notes-data", "0" * 40)
+    assert msg and "romfs" in msg and not (tmp_path / "hookshot-notes-data").exists()

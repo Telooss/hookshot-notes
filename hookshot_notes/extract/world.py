@@ -79,17 +79,21 @@ def build_world(z: ZsReader, prefix: str, dungeon_textures: list[str], field_tex
     caps = parse_byml(z.read("Game/MapCaptureInfo/MapCaptureInfo.game__MapCaptureInfo.bgyml"))["MapCaptureParamArray"]
     menu = parse_byml(z.read("Game/MapMenuInfo/MapMenuInfo.game__ui__MapMenuInfo.bgyml"))["MapMenuParamArray"]
     names = location_names(z, prefix)
+
+    def camera(i: int) -> dict:
+        c = caps[i]
+        return {"x": c["CameraPos"]["X"], "z": c["CameraPos"]["Z"], "height": c["Height"]}
+
     zones, banc_to_zone = [], {}
     for i, entry in enumerate(menu[:MENU_ZONES]):
         zid = entry["LocationName"]
-        c = caps[i]
-        cam = {"x": c["CameraPos"]["X"], "z": c["CameraPos"]["Z"], "height": c["Height"]}
-        dungeon = bool(c.get("IsDungeon"))
+        cam = camera(i)
+        dungeon = bool(caps[i].get("IsDungeon"))
         zone = {"id": zid, "name": names.get(zid) or zid, "kind": "dungeon" if dungeon else "field",
                 "maps": {}, "floors": [], "camera": cam, "objects": []}
         if dungeon:
             param = mp[zid]
-            zone["maps"][zid] = {"age": "all", "image": None}
+            zone["maps"][zid] = {"age": "all", "image": None, "camera": cam}
             for k, (floor, fname) in enumerate(zip(param["Floor"], floor_names(param["MinFloor"], param["FloorNum"]))):
                 zone["floors"].append({"name": fname, "transY": floor["TransY"], "image": f"maps/{zid}_{fname}.webp"})
                 zone["objects"] += _objects(floor, zid, k, cam, names)
@@ -101,8 +105,18 @@ def build_world(z: ZsReader, prefix: str, dungeon_textures: list[str], field_tex
             for banc, age, tex in bancs:
                 if not tex or tex not in field_textures or banc in zone["maps"]:
                     continue  # e.g. no child map of Gerudo Fortress
-                zone["maps"][banc] = {"age": age, "image": f"maps/{tex}.webp"}
+                zone["maps"][banc] = {"age": age, "image": f"maps/{tex}.webp", "camera": cam}
                 banc_to_zone.setdefault(banc, zid)
-                zone["objects"] += _objects(mp.get(banc, {}), banc, None, cam, names)
         zones.append(zone)
+    # Later menu entries reuse a map already listed but bring its own capture camera
+    # (entry 30: Ganon's Castle exterior = the adult map of the Hyrule Castle zone).
+    for i, entry in enumerate(menu[MENU_ZONES:], start=MENU_ZONES):
+        for zone in zones:
+            for banc in entry["BancName"]:
+                if banc in zone["maps"] and zone["kind"] == "field" and i < len(caps) and caps[i].get("CameraPos"):
+                    zone["maps"][banc]["camera"] = camera(i)
+    for zone in zones:
+        if zone["kind"] == "field":
+            for banc, m in zone["maps"].items():
+                zone["objects"] += _objects(mp.get(banc, {}), banc, None, m["camera"], names)
     return {"zones": zones, "bancToZone": banc_to_zone, "image": {"width": IMAGE_W, "height": IMAGE_H}}

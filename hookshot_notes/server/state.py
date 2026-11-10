@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import queue
+import sys
 import threading
 import time
 from pathlib import Path
@@ -22,15 +23,22 @@ class StateHub:
         self.known = {o["id"] for z in world["zones"] for o in z["objects"]}
         self.visited = set(self._load_visited())
         self.zone = self.banc = None
+        last = self._load_json("state.json", {})  # last zone seen, so the map is not blank before the game loads
+        if isinstance(last, dict) and last.get("banc") in world["bancToZone"]:
+            self.banc, self.zone = last["banc"], world["bancToZone"][last["banc"]]
         self._snap = self._build("no_game", None, None, None)
         self._subs: list[queue.Queue] = []
         self._lock = threading.Lock()
 
-    def _load_visited(self) -> list[str]:
+    def _load_json(self, name: str, default):
         try:
-            return [z for z in json.loads((self.data_dir / "visited.json").read_text("utf-8")) if z in self.zones]
+            return json.loads((self.data_dir / name).read_text("utf-8"))
         except (OSError, ValueError):
-            return []
+            return default
+
+    def _load_visited(self) -> list[str]:
+        zones = self._load_json("visited.json", [])
+        return [z for z in zones if z in self.zones] if isinstance(zones, list) else []
 
     def _build(self, status: str, floor: int | None, player: dict | None, save: SaveState | None) -> dict:
         collected = sorted(str(k) for k in (save.collected if save else ()) if str(k) in self.known)
@@ -43,9 +51,11 @@ class StateHub:
         floor = self._snap["floor"]
         player = None
         if live is not None and live.banc in self.world["bancToZone"]:
-            self.banc, self.zone = live.banc, self.world["bancToZone"][live.banc]
+            if live.banc != self.banc:
+                self.banc, self.zone = live.banc, self.world["bancToZone"][live.banc]
+                self._write("state.json", {"zone": self.zone, "banc": self.banc})
             zone = self.zones[self.zone]
-            px, py = project(live.x, live.z, zone["camera"])
+            px, py = project(live.x, live.z, zone["maps"].get(live.banc, {}).get("camera") or zone["camera"])
             player = {"px": round(px, 1), "py": round(py, 1)}
             floor = floor_for_height(zone["floors"], live.y) if zone["floors"] else None
             if self.zone not in self.visited:
@@ -62,10 +72,13 @@ class StateHub:
         return snap
 
     def _save_visited(self) -> None:
+        self._write("visited.json", sorted(self.visited))
+
+    def _write(self, name: str, data) -> None:
         try:
-            (self.data_dir / "visited.json").write_text(json.dumps(sorted(self.visited)), "utf-8")
+            (self.data_dir / name).write_text(json.dumps(data), "utf-8")
         except OSError:
-            pass  # the map keeps working; zones are remembered again next time
+            pass  # the map keeps working; it is remembered again next time
 
     def snapshot(self) -> dict:
         return self._snap
@@ -87,14 +100,17 @@ def poll_forever(hub: StateHub, source, saves_dir: Path | None, stop: threading.
     """Background loop: live source (Tracker or DemoSource) + latest save, re-read only when it changes."""
     reader, seen, save = SaveReader(), None, None
     while not stop.is_set():
-        path = find_latest_save(saves_dir) if saves_dir else None
         try:
-            stamp = (path, path.stat().st_mtime) if path else None
-        except OSError:
-            stamp = seen
-        if stamp != seen:
-            seen, save = stamp, reader.read(path)
-        hub.update(source.poll(), source.status, save)
+            path = find_latest_save(saves_dir) if saves_dir else None
+            st = path.stat() if path else None
+            stamp = (path, st.st_mtime, st.st_size) if st else None
+            if stamp != seen:
+                save = reader.read(path)
+                if reader.ok or path is None:
+                    seen = stamp  # a failed read (file being written, locked) is retried next round
+            hub.update(source.poll(), source.status, save)
+        except Exception as e:  # one bad round (file vanished, odd memory) must not stop the live map
+            print("hookshot-notes: poll error:", e, file=sys.stderr)
         stop.wait(interval)
 
 

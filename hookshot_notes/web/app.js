@@ -169,7 +169,9 @@ $("recenter").onclick = () => {
   if (snap && snap.player) map.setView(toLL(snap.player.px, snap.player.py), Math.max(map.getZoom(), -0.5));
 };
 $("banner").onclick = () => {
-  const ids = new Set([...(snap?.visited || []), ...(snap?.zone ? [snap.zone] : [])]);
+  const ids = snap?.status === "unsupported"  // no live data at all: every zone stays consultable
+    ? new Set(world.zones.map((z) => z.id))
+    : new Set([...(snap?.visited || []), ...(snap?.zone ? [snap.zone] : [])]);
   $("zone-list").innerHTML = "";
   for (const zone of world.zones.filter((z) => ids.has(z.id))) {
     const li = document.createElement("li"), b = document.createElement("button");
@@ -206,15 +208,18 @@ function onSnapshot(s) {
   $("status").hidden = !STATUS[s.status];
   $("status").textContent = STATUS[s.status] || "";
   $("percent").textContent = `${s.percent.toFixed(1).replace(".", ",")} % complété`;
+  let changed = false;
   if (following && s.zone) {
-    const changed = view.zone !== s.zone || view.banc !== s.banc;
+    changed = view.zone !== s.zone || view.banc !== s.banc;
     Object.assign(view, { zone: s.zone, banc: s.banc, floor: s.floor });
-    render(changed || first);
-  } else if (view.zone) {
-    render(false);
   }
+  // Markers, counters and floor buttons only change with these; position-only updates just move the arrow.
+  const key = JSON.stringify([view, s.collected, s.zone, s.floor]);
+  if (view.zone && (key !== lastKey || first)) render(changed || first);
+  lastKey = key;
   refreshLink();
 }
+let lastKey = null;
 function connect() {
   const es = new EventSource("/events");
   es.onmessage = (e) => onSnapshot(JSON.parse(e.data));

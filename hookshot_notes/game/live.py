@@ -17,7 +17,7 @@ HEAP_LO, HEAP_HI = 0x1000000000, 0x1200000000
 CHUNK = 64 << 20
 CAP = b"\x40\x00\x00\x00"
 NAME_AT, POS_AT = 12, 84  # offsets from the record start
-SEARCH_EVERY = 5.0  # seconds between two full searches when nothing was found
+SEARCH_MIN, SEARCH_MAX = 5.0, 60.0  # back-off between two full memory searches that found nothing
 
 
 @dataclass(frozen=True)
@@ -60,8 +60,8 @@ def find_record(mem: Memory, banc_names: set[str]) -> int | None:
                     found.append((base + off + i - 8 + POS_AT, rec[1]))
                 i = chunk.find(CAP, i + 4)
             off += n
-    live = [a for a, pos in found if pos != (0.0, 0.0, 0.0)]
-    return (live or [a for a, _ in found] or [None])[0]
+    live = [a for a, pos in found if pos != (0.0, 0.0, 0.0)]  # a record still at the origin is not Link yet
+    return live[0] if live else None
 
 
 class Tracker:
@@ -70,10 +70,12 @@ class Tracker:
         self.mem: Memory | None = None
         self.addr: int | None = None
         self.next_search = 0.0
+        self.search_delay = SEARCH_MIN
         self.status: Literal["no_game", "searching", "live"] = "no_game"
 
     def _lost(self) -> None:
         self.mem, self.addr, self.status = None, None, "no_game"
+        self.search_delay, self.next_search = SEARCH_MIN, 0.0
 
     def poll(self) -> LiveState | None:
         if self.mem is None:
@@ -82,13 +84,18 @@ class Tracker:
                 self._lost()
                 return None
         if self.addr is None:
-            self.status = "searching"
+            if self.status != "searching":  # publish "searching" before the (long) scan blocks this loop
+                self.status = "searching"
+                return None
             if time.monotonic() < self.next_search:
                 return None
             self.addr = find_record(self.mem, self.banc_names)
             if self.addr is None:
-                self.next_search = time.monotonic() + SEARCH_EVERY
+                if self.next_search:  # second failure in a row or later: wait twice as long
+                    self.search_delay = min(self.search_delay * 2, SEARCH_MAX)
+                self.next_search = time.monotonic() + self.search_delay
                 return None
+            self.search_delay, self.next_search = SEARCH_MIN, 0.0
         start = self.addr - POS_AT
         head = self.mem.read(start, POS_AT + 12)
         if head is None:

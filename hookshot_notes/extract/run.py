@@ -10,7 +10,7 @@ from ..paths import GameDir
 from . import assets
 from .world import build_world, language_prefix
 
-FORMAT = 1
+FORMAT = 2  # 2: camera per map
 
 
 def extract(game: GameDir, out: Path, progress: Callable[[str, float], None]) -> None:
@@ -32,12 +32,27 @@ def extract(game: GameDir, out: Path, progress: Callable[[str, float], None]) ->
         assets.write_fonts(z, tmp)
         (tmp / "world.json").write_text(json.dumps(world, ensure_ascii=False), "utf-8")
         (tmp / "meta.json").write_text(json.dumps({"build_id": bid, "format": FORMAT}), "utf-8")
-        shutil.rmtree(out, ignore_errors=True)
-        tmp.rename(out)
+        swap_in(tmp, out)
         progress("terminé", 1.0)
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
         raise
+
+
+PLAYER_FILES = ("visited.json", "state.json")  # what the player built up; kept when the cache is rebuilt
+
+
+def swap_in(tmp: Path, out: Path) -> None:
+    """Replace `out` by `tmp`, keeping the player's files; the old cache is moved aside before it is deleted."""
+    for name in PLAYER_FILES:
+        if (out / name).is_file() and not (tmp / name).exists():
+            shutil.copy2(out / name, tmp / name)
+    old = out.with_name(out.name + ".old")
+    shutil.rmtree(old, ignore_errors=True)
+    if out.exists():
+        out.rename(old)
+    tmp.rename(out)
+    shutil.rmtree(old, ignore_errors=True)
 
 
 def cache_is_valid(out: Path, build_id: str) -> bool:

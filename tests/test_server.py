@@ -132,3 +132,62 @@ def test_routes_and_no_path_traversal(tmp_path):
         assert get("/nope")[0] == 404
     finally:
         srv.shutdown(); srv.server_close()
+
+
+def test_poll_forever_survives_a_failing_round(tmp_path):
+    from hookshot_notes.server.state import poll_forever
+    hub, stop, calls = StateHub(WORLD, tmp_path), threading.Event(), []
+
+    class Source:
+        status = "live"
+        def poll(self):
+            calls.append(1)
+            if len(calls) == 1:
+                raise FileNotFoundError("save renamed mid-scan")
+            stop.set()
+            return live("KokiriForest_Child")
+    poll_forever(hub, Source(), None, stop, interval=0)
+    assert len(calls) == 2 and hub.snapshot()["zone"] == "KokiriForest"
+
+
+def test_failed_save_read_is_retried(tmp_path, monkeypatch):
+    from hookshot_notes.game import save as save_mod
+    from hookshot_notes.server.state import poll_forever
+    from tests.test_save import build_save
+    p = tmp_path / "saves" / "acc" / "slot_00" / "progress.sav"
+    p.parent.mkdir(parents=True)
+    p.write_bytes(build_save(8, 12, [12]))
+    real, attempts = save_mod.SaveReader.read, []
+
+    def flaky(self, path):
+        attempts.append(1)
+        return None if len(attempts) == 1 else real(self, path)  # first read hits a sharing violation
+    monkeypatch.setattr(save_mod.SaveReader, "read", flaky)
+    hub, stop, rounds = StateHub(WORLD, tmp_path), threading.Event(), []
+
+    class Source:
+        status = "live"
+        def poll(self):
+            rounds.append(1)
+            if len(rounds) == 3:
+                stop.set()
+            return live("KokiriForest_Child")
+    poll_forever(hub, Source(), tmp_path / "saves", stop, interval=0)
+    assert hub.snapshot()["collected"] == ["12"]
+
+
+def test_last_zone_restored_on_start(tmp_path):
+    StateHub(WORLD, tmp_path).update(live("KokiriForest_Child"), "live", None)
+    snap = StateHub(WORLD, tmp_path).snapshot()
+    assert snap["zone"] == "KokiriForest" and snap["banc"] == "KokiriForest_Child" and snap["player"] is None
+
+
+def test_second_server_on_same_port_fails(tmp_path):
+    import pytest
+    hub = StateHub(WORLD, tmp_path)
+    first = web.serve(hub, tmp_path, tmp_path, 0)
+    try:
+        with pytest.raises(OSError):
+            web.serve(hub, tmp_path, tmp_path, first.server_address[1])
+    finally:
+        first.server_close()
