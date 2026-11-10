@@ -10,7 +10,11 @@ const TYPES = [
 ];
 const DONE_ICON = { skulltula: "MapIconCollectSkullSignCheck_00", chest: "MapIconTreasure_01", heart: "MapIconCollectHeartPieceCheck_00" };
 const W = 2000, H = 1440, BOUNDS = L.latLngBounds([[-H, 0], [0, W]]);
-const STATUS = { no_game: "Jeu non détecté — la carte reste consultable", searching: "Recherche de Link…" };
+const STATUS = {
+  no_game: "Jeu non détecté — la carte reste consultable",
+  searching: "Recherche de Link…",
+  unsupported: "Version du jeu non reconnue — position en direct désactivée",
+};
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem("hn." + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -222,9 +226,24 @@ function connect() {
   };
 }
 
+/* ---------- QR code, on the PC only (the phone scans it) ---------- */
+function showQr() {
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(location.hostname)) return;
+  try { if (sessionStorage.getItem("hn.qr")) return; } catch { /* ignore */ }
+  fetch("/api/qr").then((r) => r.ok ? r.json() : null).then((q) => {
+    if (!q) return;
+    const svg = new DOMParser().parseFromString(q.svg, "image/svg+xml").documentElement;
+    $("qr-code").replaceChildren(document.importNode(svg, true));
+    $("qr-url").textContent = q.url;
+    $("qr").hidden = false;
+  }).catch(() => {});
+}
+$("qr-close").onclick = () => { $("qr").hidden = true; try { sessionStorage.setItem("hn.qr", "1"); } catch { /* ignore */ } };
+
 fetch("/api/world").then((r) => r.json()).then((w) => {
   world = w;
   zones = Object.fromEntries(w.zones.map((z) => [z.id, z]));
   drawChips(); drawMode(); setFollowing(true);
   connect();
+  showQr();
 }).catch(() => { $("status").hidden = false; $("status").textContent = "Données introuvables — relance Hookshot Notes"; });
