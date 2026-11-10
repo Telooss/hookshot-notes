@@ -3,6 +3,7 @@
 python -m hookshot_notes [--port N] [--no-game] [--demo BANC] [--game-dir PATH]"""
 import argparse
 import json
+import os
 import sys
 import threading
 import webbrowser
@@ -14,6 +15,7 @@ from .game.live import Tracker
 from .game.memory import open_game_memory
 from .launcher import game as launcher
 from .launcher import qr
+from .launcher.locate import ask_game_dir, find_game_dir, remember
 from .launcher.shortcut import create_desktop_shortcut
 from .paths import GameDir
 from .server import http as web
@@ -46,11 +48,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--game-dir", type=Path)
     args = ap.parse_args(argv)
 
-    game = GameDir.find(args.game_dir or _here())
+    appdata = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    game = find_game_dir(args.game_dir, _here(), appdata)
     if game is None:
-        print("Dossier Hookshot introuvable : place hookshot-notes.exe dans le dossier du jeu (à côté de romfs).")
+        print("Dossier Hookshot introuvable : choisis-le dans la fenêtre qui s'ouvre.")
+        chosen = ask_game_dir()
+        game = GameDir.find(chosen) if chosen else None
+    if game is None:
+        print("Dossier Hookshot introuvable : choisis le dossier qui contient romfs et hookshot.exe.")
         input("Entrée pour fermer…")
         return 1
+    remember(appdata, game.root)
+    print("Jeu :", game.root)
     problem = launcher.check_version(game)
     if problem:
         print(problem)
