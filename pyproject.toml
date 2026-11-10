@@ -1,0 +1,22 @@
+[project]
+name = "hookshot-notes"
+version = "0.1.0"
+description = "Carte interactive en direct pour Hookshot (Ocarina of Time, Switch 2) — consultable sur téléphone."
+requires-python = ">=3.12"
+dependencies = [
+    "zstandard",
+    "Pillow",
+    "numpy",
+    "texture2ddecoder",
+    "mmh3",
+    "qrcode",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pyinstaller"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "game: lit la copie locale du jeu (définir HOOKSHOT_DIR) ; sauté sinon",
+]
