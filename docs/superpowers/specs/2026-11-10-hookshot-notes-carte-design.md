@@ -116,7 +116,7 @@ ocarina virtuelle, partitions, quiz, studio photo, statistiques de jeu (« herbe
 - `Game/MapCaptureInfo/…bgyml` : 36 caméras vues de dessus (`CameraPos` X/Z, `Height`). Les 30 premières suivent l'ordre
   de `MapMenuInfo`.
 - **Conversion monde → image** (vérifiée sur la forêt Kokiri et la plaine d'Hyrule) :
-  `px = 1000 + (x − CameraPos.X) × 1440 / Height`, `py = 720 + (z − CameraPos.Z) × 1440 / Height`.
+  `px = 1000 + (x − CameraPos.X) × 2000 / Height`, `py = 720 + (z − CameraPos.Z) × 2000 / Height` (corrigé pendant la tâche 3 : `Height` est l’étendue horizontale de la capture ; vérifié sur 136/144 objets des donjons, étage par étage, et sur les sorties des zones extérieures, qui tombent alors sur les bords des cartes).
 
 ### Objets
 

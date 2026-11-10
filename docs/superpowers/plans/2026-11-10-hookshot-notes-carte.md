@@ -17,7 +17,7 @@
 - **Réseau local uniquement** : le serveur refuse toute IP cliente hors loopback et plages privées (`10/8`, `172.16/12`, `192.168/16`, `169.254/16`, `fe80::/10`, `fc00::/7`) ; aucune route ne modifie quoi que ce soit.
 - **Version reconnue** : build ID du code du jeu (20 octets à l'offset `0x40` de `.hookshot_exefs/main`) = `e0f3ccfaf50065ae4ea01eb5aeb13b1a45da3348`.
 - **Mémoire** : adresse Windows = `0x100000000000` + adresse Switch ; tas Switch à partir de `0x1000000000`.
-- **Conversion monde → image** (image 2000×1440) : `px = 1000 + (x − CameraPos.X) × 1440 / Height`, `py = 720 + (z − CameraPos.Z) × 1440 / Height`.
+- **Conversion monde → image** (image 2000×1440) : `px = 1000 + (x − CameraPos.X) × 2000 / Height`, `py = 720 + (z − CameraPos.Z) × 2000 / Height` (corrigé pendant la tâche 3 : `Height` est l’étendue horizontale de la capture ; vérifié sur 136/144 objets des donjons, étage par étage, et sur les sorties des zones extérieures, qui tombent alors sur les bords des cartes).
 - **Clé XOR des polices** : `a6 01 85 02` (période 4), données à partir de l'octet 8.
 - **Textes de la page en français** ; noms de lieux tirés des textes du jeu dans la langue de `language.txt`.
 - **Nom** : « Hookshot Notes » (raccourci « Hookshot Notes », exe `hookshot-notes.exe`, cache `hookshot-notes-data/`).

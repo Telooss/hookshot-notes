@@ -10,6 +10,7 @@ from .bntx import TexInfo
 
 # format type (high byte) -> (kind, block width, block height, bytes per block)
 FORMATS = {
+    0x02: ("raw", 1, 1, 1), 0x09: ("raw", 1, 1, 2), 0x0B: ("raw", 1, 1, 4),
     0x1D: ("bc4", 4, 4, 8),
     0x2D: ("astc", 4, 4, 16), 0x2E: ("astc", 5, 4, 16), 0x2F: ("astc", 5, 5, 16), 0x30: ("astc", 6, 5, 16),
     0x31: ("astc", 6, 6, 16), 0x32: ("astc", 8, 5, 16), 0x33: ("astc", 8, 6, 16), 0x34: ("astc", 8, 8, 16),
@@ -45,15 +46,20 @@ def swizzle(linear: bytes, bw: int, bh: int, bpb: int, bhl: int, size: int) -> b
 
 
 def decode(buf: bytes, info: TexInfo) -> Image.Image:
-    """RGBA image of a texture's first mip; BC4 masks become white with the mask as alpha."""
+    """RGBA image of a texture's first mip, with the texture's channel selectors applied
+    (so a BC4 mask with selectors 1,1,1,R becomes white with the mask as alpha)."""
     kind, bx, by, bpb = FORMATS[info.fmt >> 8]
     bw, bh = math.ceil(info.width / bx), math.ceil(info.height / by)
     raw = buf[info.data_offset:info.data_offset + info.data_size]
     lin = deswizzle(raw, bw, bh, bpb, info.block_height_log2)
     w, h = bw * bx, bh * by
-    if kind == "bc4":
-        a = Image.frombytes("RGBA", (w, h), texture2ddecoder.decode_bc4(lin, w, h), "raw", "BGRA").getchannel("R")
-        im = Image.merge("RGBA", [Image.new("L", (w, h), 255)] * 3 + [a])
+    if kind == "raw":
+        src = np.zeros((h, w, 4), np.uint8)
+        src[:, :, :bpb] = np.frombuffer(lin, np.uint8).reshape(h, w, bpb)
     else:
-        im = Image.frombytes("RGBA", (w, h), texture2ddecoder.decode_astc(lin, w, h, bx, by), "raw", "BGRA")
-    return im.crop((0, 0, info.width, info.height))
+        px = texture2ddecoder.decode_bc4(lin, w, h) if kind == "bc4" else texture2ddecoder.decode_astc(lin, w, h, bx, by)
+        src = np.asarray(Image.frombytes("RGBA", (w, h), px, "raw", "BGRA"))
+    # selector values: 0 = zero, 1 = one, 2..5 = source R, G, B, A
+    planes = [np.zeros((h, w), np.uint8), np.full((h, w), 255, np.uint8)] + [src[:, :, i] for i in range(4)]
+    out = np.stack([planes[s] for s in info.comp_sel], axis=2)
+    return Image.fromarray(out, "RGBA").crop((0, 0, info.width, info.height))

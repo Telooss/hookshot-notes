@@ -26,6 +26,24 @@ def test_swizzle_moves_bytes():
     assert raw[64] == 16 and raw[32] == 0
 
 
+def test_decode_rg8_applies_channel_selectors():
+    from hookshot_notes.formats.bntx import TexInfo
+    pixels = bytes([10, 200, 20, 150, 30, 100, 40, 50])  # 2x2 RG8: (r, g) per pixel, row by row
+    raw = texture.swizzle(pixels, 2, 2, 2, 0, texture.swizzled_size(2, 2, 2, 0))
+    # selectors R,G,B,A = R,R,R,G (2 = red channel, 3 = green channel)
+    info = TexInfo("t", 0x0901, 2, 2, 0, 0, len(raw), bytes([2, 2, 2, 3]))
+    im = texture.decode(raw, info)
+    assert im.getpixel((0, 0)) == (10, 10, 10, 200)
+    assert im.getpixel((1, 1)) == (40, 40, 40, 50)
+
+
+def test_decode_selectors_zero_and_one():
+    from hookshot_notes.formats.bntx import TexInfo
+    raw = texture.swizzle(bytes([77]), 1, 1, 1, 0, texture.swizzled_size(1, 1, 1, 0))
+    info = TexInfo("t", 0x0201, 1, 1, 0, 0, len(raw), bytes([1, 1, 0, 2]))  # R8: white-ish, B=0, A=R
+    assert texture.decode(raw, info).getpixel((0, 0)) == (255, 255, 0, 77)
+
+
 def test_font_decrypt():
     plain = b"OTTO" + bytes(range(60))
     enc = b"\x01\x02\x03\x04\x05\x06\x07\x08" + bytes(c ^ KEY[i % 4] for i, c in enumerate(plain))
